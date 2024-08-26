@@ -42,9 +42,14 @@ public:
 static shared_ptr<TarArchiveFileMetadataCache> TryGetCachedArchiveMetadata(optional_ptr<FileOpener> opener,
                                                                            FileHandle &handle, const string &path) {
 	// Is this file compressed?
-	if (handle.GetFileCompressionType() != FileCompressionType::UNCOMPRESSED) {
+	// TODO: fixed on main
+	//if (handle.GetFileCompressionType() != FileCompressionType::UNCOMPRESSED) {
+	//	return nullptr;
+	//}
+	if(handle.file_system.GetName() == "GZipFileSystem") {
 		return nullptr;
 	}
+
 	// Do we have a client context?
 	if (!opener) {
 		return nullptr;
@@ -439,7 +444,9 @@ vector<string> TarFileSystem::Glob(const string &path, FileOpener *opener) {
 	}
 
 	auto last_modified = archive_handle->file_system.GetLastModifiedTime(*archive_handle);
-	auto is_uncompressed = archive_handle->GetFileCompressionType() == FileCompressionType::UNCOMPRESSED;
+	// TODO: Fixed on duckdb main
+	//auto is_uncompressed = archive_handle->GetFileCompressionType() == FileCompressionType::UNCOMPRESSED;
+	auto is_uncompressed = archive_handle->file_system.GetName() != "GZipFileSystem";
 
 	vector<string> result;
 	for (auto &entry : TarBlockIterator::Scan(*archive_handle)) {
