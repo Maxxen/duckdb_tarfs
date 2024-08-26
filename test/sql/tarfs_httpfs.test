@@ -1,0 +1,11 @@
+# name: test/sql/tarfs_httpfs.test
+# group: [tar]
+require tarfs
+
+require httpfs
+
+query I
+SELECT filename FROM read_blob('tar://https://duckdb-blobs.s3.amazonaws.com/ab.tar/*') ORDER BY ALL;
+----
+tar://https://duckdb-blobs.s3.amazonaws.com/ab.tar/a.csv
+tar://https://duckdb-blobs.s3.amazonaws.com/ab.tar/b.csv
