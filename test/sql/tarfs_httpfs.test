@@ -1,5 +1,6 @@
 # name: test/sql/tarfs_httpfs.test
-# group: [tar]
+# group: [sql]
+
 require tarfs
 
 require httpfs

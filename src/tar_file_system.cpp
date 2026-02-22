@@ -5,7 +5,7 @@
 #include "duckdb/common/numeric_utils.hpp"
 #include "duckdb/common/file_opener.hpp"
 #include "duckdb/storage/object_cache.hpp"
-#include "duckdb/function/scalar/string_functions.hpp"
+#include "duckdb/function/scalar/string_common.hpp"
 
 namespace duckdb {
 
@@ -14,14 +14,14 @@ namespace duckdb {
 //------------------------------------------------------------------------------
 struct TarArchiveFileMetadataCache final : public ObjectCacheEntry {
 public:
-	TarArchiveFileMetadataCache() : read_time(0), byte_offset(0), byte_size(0) {
+	TarArchiveFileMetadataCache() : read_time(), byte_offset(0), byte_size(0) {
 	}
-	TarArchiveFileMetadataCache(time_t read_time_p, idx_t byte_offset_p, idx_t byte_size_p)
+	TarArchiveFileMetadataCache(timestamp_t read_time_p, idx_t byte_offset_p, idx_t byte_size_p)
 	    : read_time(read_time_p), byte_offset(byte_offset_p), byte_size(byte_size_p) {
 	}
 
 	//! Read time (of the archive as a whole)
-	time_t read_time;
+	timestamp_t read_time;
 
 	//! Byte offset to the file in the tar archive
 	idx_t byte_offset;
@@ -42,11 +42,7 @@ public:
 static shared_ptr<TarArchiveFileMetadataCache> TryGetCachedArchiveMetadata(optional_ptr<FileOpener> opener,
                                                                            FileHandle &handle, const string &path) {
 	// Is this file compressed?
-	// TODO: fixed on main
-	//if (handle.GetFileCompressionType() != FileCompressionType::UNCOMPRESSED) {
-	//	return nullptr;
-	//}
-	if(handle.file_system.GetName() == "GZipFileSystem") {
+	if (handle.GetFileCompressionType() != FileCompressionType::UNCOMPRESSED) {
 		return nullptr;
 	}
 
@@ -59,9 +55,6 @@ static shared_ptr<TarArchiveFileMetadataCache> TryGetCachedArchiveMetadata(optio
 		return nullptr;
 	}
 	// Is this archive file already in the cache?
-	if (!ObjectCache::ObjectCacheEnabled(*context)) {
-		return nullptr;
-	}
 	auto &cache = ObjectCache::GetObjectCache(*context);
 	auto entry = cache.Get<TarArchiveFileMetadataCache>(path);
 	if (!entry) {
@@ -387,7 +380,7 @@ bool TarFileSystem::CanSeek() {
 	return true;
 }
 
-time_t TarFileSystem::GetLastModifiedTime(FileHandle &handle) {
+timestamp_t TarFileSystem::GetLastModifiedTime(FileHandle &handle) {
 	auto &t_handle = handle.Cast<TarFileHandle>();
 	auto &inner_handle = *t_handle.inner_handle;
 	return inner_handle.file_system.GetLastModifiedTime(inner_handle);
@@ -404,7 +397,7 @@ bool TarFileSystem::OnDiskFile(FileHandle &handle) {
 	return t_handle.inner_handle->OnDiskFile();
 }
 
-vector<string> TarFileSystem::Glob(const string &path, FileOpener *opener) {
+vector<OpenFileInfo> TarFileSystem::Glob(const string &path, FileOpener *opener) {
 	// Remove the "tar://" prefix
 	const auto parts = SplitArchivePath(path.substr(6));
 	auto &tar_path = parts.first;
@@ -416,7 +409,7 @@ vector<string> TarFileSystem::Glob(const string &path, FileOpener *opener) {
 
 	if (!HasGlob(file_path)) {
 		// No glob pattern in the file path, just return the file path
-		return {path};
+		return {OpenFileInfo(path)};
 	}
 
 	auto pattern_parts = StringUtil::Split(file_path, '/');
@@ -430,13 +423,12 @@ vector<string> TarFileSystem::Glob(const string &path, FileOpener *opener) {
 	optional_ptr<ObjectCache> cache;
 	optional_ptr<ClientContext> context = opener->TryGetClientContext();
 	if (context) {
-		if (ObjectCache::ObjectCacheEnabled(*context)) {
-			cache = ObjectCache::GetObjectCache(*context);
-		}
+		cache = ObjectCache::GetObjectCache(*context);
 	}
 
 	// Given the path to the tar file, open it
-	auto &fs = FileSystem::GetFileSystem(*context);;
+	auto &fs = FileSystem::GetFileSystem(*context);
+	;
 
 	auto archive_handle = fs.OpenFile(tar_path, FileFlags::FILE_FLAGS_READ);
 	if (!archive_handle) {
@@ -444,11 +436,9 @@ vector<string> TarFileSystem::Glob(const string &path, FileOpener *opener) {
 	}
 
 	auto last_modified = archive_handle->file_system.GetLastModifiedTime(*archive_handle);
-	// TODO: Fixed on duckdb main
-	//auto is_uncompressed = archive_handle->GetFileCompressionType() == FileCompressionType::UNCOMPRESSED;
-	auto is_uncompressed = archive_handle->file_system.GetName() != "GZipFileSystem";
+	auto is_uncompressed = archive_handle->GetFileCompressionType() == FileCompressionType::UNCOMPRESSED;
 
-	vector<string> result;
+	vector<OpenFileInfo> result;
 	for (auto &entry : TarBlockIterator::Scan(*archive_handle)) {
 
 		auto entry_name = entry.file_name;
@@ -476,7 +466,7 @@ vector<string> TarFileSystem::Glob(const string &path, FileOpener *opener) {
 				break;
 			}
 
-			if (!LikeFun::Glob(ep.c_str(), ep.size(), pp.c_str(), pp.size())) {
+			if (!duckdb::Glob(ep.c_str(), ep.size(), pp.c_str(), pp.size())) {
 				// Not a match
 				match = false;
 				break;
@@ -498,7 +488,7 @@ vector<string> TarFileSystem::Glob(const string &path, FileOpener *opener) {
 				auto cache_entry = make_shared_ptr<TarArchiveFileMetadataCache>(last_modified, offset, size);
 				cache->Put(entry_path, std::move(cache_entry));
 			}
-			result.push_back(entry_path);
+			result.emplace_back(entry_path);
 		}
 	}
 

@@ -1,5 +1,6 @@
 # name: test/sql/tarfs.test
-# group: [tar]
+# group: [sql]
+
 require tarfs
 
 query I
